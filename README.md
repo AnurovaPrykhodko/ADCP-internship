@@ -18,4 +18,5 @@ Implements Python 3.12, DOLfYN, Matplotlib, NumPy, Xarray and SciPy.
 - Applying correlation filter
 - Removing outliers from signal amplitude
 - Controlling coordinate system and setting declination
+- Flaggind bad data
 - Exporting data as netcdf

@@ -1,4 +1,4 @@
 A0524000.000
-ADCP_processed_0524.nc
+*.nc
 __pycache__/my_functions.cpython-312.pyc
 processed_data_analysis.ipynb

@@ -21,4 +21,4 @@ Implements Python 3.12, DOLfYN, Matplotlib, NumPy, Xarray and SciPy.
 - Assigning quality flags to data
 - Exporting data as netcdf
 
-### data_analysis.ipynb: Jupyter Notebook containing further analyis of the processed data.
+### data_analysis.ipynb: Jupyter Notebook containing further analysis of the processed data.

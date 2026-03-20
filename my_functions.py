@@ -20,10 +20,10 @@ def print_data_removed(ds_before, ds_after, variable):
     print(f"Data removed for {variable}: {removed} ({percent_removed:.2f}%)")
 
 
-def remove_outliers(ds, bottom_threshold, surface_threshold):
+def detect_outliers(ds, bottom_threshold, surface_threshold, set_to_NaN=True):
      """
-     Remove signal outliers based on linear decay of signal. If less than 3 beams are valid, velocity filtered set to NaN.
-
+     Detect signal outliers based on linear decay of signal. Signal counts as outlier if less than 3 beams are valid.
+     
      Parameters
      ----------
      ds : xarray.Dataset
@@ -33,13 +33,19 @@ def remove_outliers(ds, bottom_threshold, surface_threshold):
      surface_threshold : float
           Amplitude threshold at the surface (last bin). Threshold is linearly
           interpolated between bottom and surface.
+     set_to_NaN : Boolean
+          Adjust to return copy of dataset with velocity set to NaN according to outliers (True)
+          or return mask with true for valid values (False)
 
      Returns:
      -------
      ds_cleaned : xarray.Dataset
           Copy of the input dataset with:
           - 'amp' : beam amplitudes above threshold set to NaN
-          - 'vel_filt' : velocities set to NaN where fewer than 3 beams are valid.
+          - 'vel' : velocities set to NaN where fewer than 3 beams are valid.
+     or 
+     beam_mask : xarray.Dataset
+          Mask with True for valid values.
      """
      n_bins = ds.sizes['range']
      threshold = np.linspace(bottom_threshold, surface_threshold, n_bins)
@@ -52,82 +58,19 @@ def remove_outliers(ds, bottom_threshold, surface_threshold):
 
      ds_cleaned['amp'] = ds['amp'].where(mask_per_beam)
 
-     if 'vel_filt' in ds:
-           ds_cleaned['vel_filt'] = ds['vel_filt'].where(beam_mask)
-
-     return ds_cleaned
+     if 'vel' in ds and set_to_NaN == True:
+           ds_cleaned['vel'] = ds['vel'].where(beam_mask)
+           return ds_cleaned
+     elif set_to_NaN == False:
+           return beam_mask
+     else:
+           print('dataset does not contain variable vel')
 
 
 def interp_profile(vel, coord, coord_new):
     """Interpolate a single velocity profile from time varying coordinate to constant coordinate."""
     f = interp1d(coord, vel, kind='linear', bounds_error=False, fill_value=np.nan)
     return f(coord_new)
-
-def correlation_filter(ds, thresh=50, inplace=False):
-    """
-    Function adapted from mhkit.dolfyn.adp.api.clean to remove vel_filt instead of vel values based on correlation.
-
-    Filters out data where correlation is below a threshold in the
-    along-beam correlation data.
-
-    Parameters
-    ----------
-    ds : xarray.Dataset
-      The adcp dataset to clean.
-    thresh : numeric
-      The maximum value of correlation to screen, in counts or %.
-      Default = 50
-    inplace : bool
-      When True the existing data object is modified. When False
-      a copy is returned. Default = False
-
-    Returns
-    -------
-    ds : xarray.Dataset
-      Elements in velocity filtered, correlation, and amplitude are removed if below the
-      correlation threshold
-
-    Notes
-    -----
-    Does not edit correlation or amplitude data.
-    """
-
-    if not inplace:
-        ds = ds.copy(deep=True)
-
-    # 4 or 5 beam
-    tag = []
-    if hasattr(ds, "vel_filt"):
-        tag += [""]
-    if hasattr(ds, "vel_b5"):
-        tag += ["_b5"]
-    if hasattr(ds, "vel_avg"):
-        tag += ["_avg"]
-
-    # copy original ref frame
-    coord_sys_orig = ds.coord_sys
-
-    # correlation is always in beam coordinates
-    dolfyn.rotate2(ds, "beam", inplace=True)
-    # correlation is always in beam coordinates
-    for tg in tag:
-        mask = ds["corr" + tg].values <= thresh
-
-        for var in ["vel_filt", "corr", "amp"]:
-            try:
-                ds[var + tg].values[mask] = np.nan
-            except:
-                ds[var + tg].values[mask] = 0
-            ds[var + tg].attrs["Comments"] = (
-                "Filtered of data with a correlation value below "
-                + str(thresh)
-                + ds["corr" + tg].units
-            )
-
-    dolfyn.rotate2(ds, coord_sys_orig, inplace=True)
-
-    if not inplace:
-        return ds
 
 
 def apply_qc_mask(mask, true_values, qc1, qc2):
@@ -166,7 +109,7 @@ def plot_qc_primary(ds, direction=0):
     Plot primary QC flags for chosen direction.
     
     Parameters:
-        ds: xarray Dataset containing 'vel_qc_primary'
+        ds: xarray Dataset containing 'vel_qc_primary' or 'vel_filt_qc_primary'
         direction: int, index for direction (0=E, 1=N, 2=U1, 3=U2)
     """
     dir_labels = {0: 'E', 1: 'N', 2: 'U1', 3: 'U2'}
@@ -184,14 +127,25 @@ def plot_qc_primary(ds, direction=0):
     norm = BoundaryNorm(bounds, cmap.N)
     
     # Plot with discrete colors
-    ds['vel_qc_primary'][direction].plot(
-        cmap=cmap, 
-        norm=norm,
-        cbar_kwargs={
-            'ticks': [1, 2, 3, 4, 9],
-            'label': 'QC Flag'
-        }
-    )
+    if 'vel_qc_primary' in ds:
+        ds['vel_qc_primary'][direction].plot(
+            cmap=cmap, 
+            norm=norm,
+            cbar_kwargs={
+                'ticks': [1, 2, 3, 4, 9],
+                'label': 'QC Flag'
+            }
+        )
+    else:
+        ds['vel_filt_qc_primary'][direction].plot(
+            cmap=cmap, 
+            norm=norm,
+            cbar_kwargs={
+                'ticks': [1, 2, 3, 4, 9],
+                'label': 'QC Flag'
+            }
+        )
+
     
     # Rename colorbar tick labels
     cbar = plt.gca().collections[0].colorbar
@@ -200,61 +154,37 @@ def plot_qc_primary(ds, direction=0):
     plt.title(f'Primary QC Flags (dir={dir_labels.get(direction, direction)})')
     plt.show()
 
-def plot_qc_secondary(ds, direction=0, num_flags=7):
+def plot_qc_secondary(ds, direction=0):
     """
     Plot secondary QC flags.
     
     Parameters:
-        ds: xarray Dataset containing 'vel_qc_secondary'
+        ds: xarray Dataset containing 'vel_qc_secondary' or 'vel_filt_qc_secondary'
         direction: int, index for direction (0=E, 1=N, 2=U1, 3=U2)
         num_flags: int, number of QC flags (7 or 8)
     """
     dir_labels = {0: 'E', 1: 'N', 2: 'U1', 3: 'U2'}
     
-    if num_flags == 7:
-        colors = [
-            '#228B22',  # 1: Passed     
-            '#808080',  # 2: Unknown     
-            '#F0E442',  # 3: Above surface     
-            '#E69F00',  # 4: Surface interference     
-            '#56B4E9',  # 5: Below correlation     
-            '#CC79A7',  # 6: Amplitude outliers     
-            '#000000',  # 7: Missing     
-        ]
-        bounds = [0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5]
-        ticks = [1, 2, 3, 4, 5, 6, 7]
-        labels = [
-            'Passed all tests',
-            'Unknown', 
-            'Above surface',
-            'Surface interference',
-            'Below correlation threshold',
-            'Signal amplitude outliers',
-            'Missing data'
-        ]
-    elif num_flags == 8:
-        colors = [
-            '#228B22',  # 1: Passed     
-            '#808080',  # 2: Unknown     
-            '#F0E442',  # 3: Above surface     
-            '#E69F00',  # 4: Surface interference     
-            '#56B4E9',  # 5: Below correlation     
-            '#CC79A7',  # 6: Amplitude outliers     
-            '#0072B2',  # 7: Interpolated data
-            '#000000',  # 8: Missing     
-        ]
-        bounds = [0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5]
-        ticks = [1, 2, 3, 4, 5, 6, 7, 8]
-        labels = [
-            'Passed all tests',
-            'Unknown', 
-            'Above surface',
-            'Surface interference',
-            'Below correlation threshold',
-            'Signal amplitude outliers',
-            'Interpolated data',
-            'Missing data'
-        ]
+    colors = [
+        '#228B22',  # 1: Passed     
+        '#808080',  # 2: Unknown     
+        '#F0E442',  # 3: Above surface     
+        '#E69F00',  # 4: Surface interference     
+        '#56B4E9',  # 5: Below correlation     
+        '#CC79A7',  # 6: Amplitude outliers     
+        '#000000',  # 7: Missing     
+    ]
+    bounds = [0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5]
+    ticks = [1, 2, 3, 4, 5, 6, 7]
+    labels = [
+        'Passed all tests',
+        'Unknown', 
+        'Above surface',
+        'Surface interference',
+        'Below correlation threshold',
+        'Signal amplitude outliers',
+        'Missing data'
+    ]
     
     cmap = ListedColormap(colors)
     norm = BoundaryNorm(bounds, cmap.N)
@@ -275,3 +205,73 @@ def plot_qc_secondary(ds, direction=0, num_flags=7):
     
     plt.title(f'Secondary QC Flags (dir={dir_labels.get(direction, direction)})')
     plt.show()
+
+
+def create_masks(ds, corr_threshold=64, bottom_threshold=225, surface_threshold=100):
+     """
+     Create quality control masks for ADCP data.
+          
+     Parameters
+     ----------
+     ds : xarray.Dataset
+         Dataset containing 'range', 'depth', 'corr', and 'vel' variables.
+         corr_threshold : float, optional
+         Correlation threshold. Default is 100.
+         bottom_threshold : float, optional
+            Amplitude threshold at bottom for outlier detection. Default is 225.
+         surface_threshold : float, optional
+            Amplitude threshold at surface for outlier detection. Default is 100.
+        
+     Returns
+     -------
+     dict
+        Dictionary containing all masks:
+        - 'above_surface': True where range > depth
+        - 'surface_interference': True in upper 15% of water column
+        - 'below_corr_thresh': True where correlation below threshold
+        - 'outlier': True where amplitude outliers detected
+        - 'NaN': True where velocity is NaN
+        - 'passed': True where all quality checks pass
+     """
+
+     # values above surface, True where range > depth
+     mask_above_surface = ds['range'] > ds['depth']   
+ 
+     # values contaminated from surface interference (upper 15%)
+     mask_surface_interference = (ds['range']/ds['depth'] >= 0.85) & (ds['range']/ds['depth'] <= 1)
+
+     # values below correlation threshold
+     mask_below_corr_thresh = (
+        (ds['corr'] <= corr_threshold).any(dim='beam')
+        & ~mask_above_surface
+        & ~mask_surface_interference
+        )
+
+     # amplitude outliers
+     mask_outlier = (
+        ~detect_outliers(ds, bottom_threshold, surface_threshold, set_to_NaN=False)
+        & ~mask_above_surface
+        & ~mask_surface_interference
+        & ~mask_below_corr_thresh
+        )
+
+     # NaN values
+     mask_NaN = np.isnan(ds['vel'])
+
+     # passed all checks
+     mask_passed = (
+        ~mask_above_surface
+        & ~mask_surface_interference
+        & ~mask_below_corr_thresh
+        & ~mask_outlier
+        & ~mask_NaN
+        )
+        
+     return {
+        'above_surface': mask_above_surface,
+        'surface_interference': mask_surface_interference,
+        'below_corr_thresh': mask_below_corr_thresh,
+        'outlier': mask_outlier,
+        'NaN': mask_NaN,
+        'passed': mask_passed
+        }

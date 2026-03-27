@@ -161,30 +161,39 @@ def plot_qc_secondary(ds, direction=0):
     Parameters:
         ds: xarray Dataset containing 'vel_qc_secondary' or 'vel_filt_qc_secondary'
         direction: int, index for direction (0=E, 1=N, 2=U1, 3=U2)
-        num_flags: int, number of QC flags (7 or 8)
     """
     dir_labels = {0: 'E', 1: 'N', 2: 'U1', 3: 'U2'}
     
     colors = [
-        '#228B22',  # 1: Passed     
-        '#808080',  # 2: Unknown     
-        '#F0E442',  # 3: Above surface     
-        '#E69F00',  # 4: Surface interference     
-        '#56B4E9',  # 5: Below correlation     
-        '#CC79A7',  # 6: Amplitude outliers     
-        '#000000',  # 7: Missing     
+        '#228B22',  # 1: Passed
+        '#808080',  # 2: Unknown
+        '#F0E442',  # 3: Above surface
+        '#E69F00',  # 4: Surface interference
+        '#56B4E9',  # 5: Below correlation
+        '#CC79A7',  # 6: Amplitude outliers
+        '#9467BD',  # 7: Compass heading deviation
+        '#D62728',  # 8: Pressure failure
+        '#17BECF',  # 9: Temperature sensor
+        '#BCBD22',  # 10: Time
+        '#000000',  # 11: Missing
     ]
-    bounds = [0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5]
-    ticks = [1, 2, 3, 4, 5, 6, 7]
+    bounds = [0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5, 10.5, 11.5]
+    ticks = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+    
     labels = [
         'Passed all tests',
-        'Unknown', 
+        'Unknown',
         'Above surface',
         'Surface interference',
         'Below correlation threshold',
         'Signal amplitude outliers',
+        'Compass heading deviation',
+        'Pressure failure',
+        'Temperature sensor',
+        'Time error',
         'Missing data'
     ]
+    
     
     cmap = ListedColormap(colors)
     norm = BoundaryNorm(bounds, cmap.N)
@@ -206,72 +215,32 @@ def plot_qc_secondary(ds, direction=0):
     plt.title(f'Secondary QC Flags (dir={dir_labels.get(direction, direction)})')
     plt.show()
 
-
-def create_masks(ds, corr_threshold=64, bottom_threshold=225, surface_threshold=100):
-     """
-     Create quality control masks for ADCP data.
-          
-     Parameters
-     ----------
-     ds : xarray.Dataset
-         Dataset containing 'range', 'depth', 'corr', and 'vel' variables.
-         corr_threshold : float, optional
-         Correlation threshold. Default is 100.
-         bottom_threshold : float, optional
-            Amplitude threshold at bottom for outlier detection. Default is 225.
-         surface_threshold : float, optional
-            Amplitude threshold at surface for outlier detection. Default is 100.
-        
-     Returns
-     -------
-     dict
-        Dictionary containing all masks:
-        - 'above_surface': True where range > depth
-        - 'surface_interference': True in upper 15% of water column
-        - 'below_corr_thresh': True where correlation below threshold
-        - 'outlier': True where amplitude outliers detected
-        - 'NaN': True where velocity is NaN
-        - 'passed': True where all quality checks pass
-     """
-
-     # values above surface, True where range > depth
-     mask_above_surface = ds['range'] > ds['depth']   
- 
-     # values contaminated from surface interference (upper 15%)
-     mask_surface_interference = (ds['range']/ds['depth'] >= 0.85) & (ds['range']/ds['depth'] <= 1)
-
-     # values below correlation threshold
-     mask_below_corr_thresh = (
-        (ds['corr'] <= corr_threshold).any(dim='beam')
-        & ~mask_above_surface
-        & ~mask_surface_interference
-        )
-
-     # amplitude outliers
-     mask_outlier = (
-        ~detect_outliers(ds, bottom_threshold, surface_threshold, set_to_NaN=False)
-        & ~mask_above_surface
-        & ~mask_surface_interference
-        & ~mask_below_corr_thresh
-        )
-
-     # NaN values
-     mask_NaN = np.isnan(ds['vel'])
-
-     # passed all checks
-     mask_passed = (
-        ~mask_above_surface
-        & ~mask_surface_interference
-        & ~mask_below_corr_thresh
-        & ~mask_outlier
-        & ~mask_NaN
-        )
-        
-     return {
-        'above_surface': mask_above_surface,
-        'surface_interference': mask_surface_interference,
-        'below_corr_thresh': mask_below_corr_thresh,
-        'outlier': mask_outlier,
-        'NaN': mask_NaN,
-        'passed': mask_passed
-        }
+def detect_const_pressure(ds, pressure_diff_thresh=0.001):
+    """
+    Detect three consecutive constant pressure values in a dataset. Constant is defined as a 
+    value +- pressure_diff_thresh to allow for rounded values of the last digit.
+    
+    Parameters:
+        ds: xarray Dataset containing 'pressure' variable
+        pressure_diff_thresh: float, threshold for detecting constant values (default 0.001)
+    
+    Returns:
+        mask_pressure_constant: xarray DataArray, True where pressure is constant
+    """
+    # Calculate difference between consecutive values
+    pressure_diff = np.abs(ds['pressure'] - ds['pressure'].shift(time=1)).fillna(0)
+    
+    # Check where difference is below threshold
+    pressure_constant = pressure_diff <= pressure_diff_thresh
+    
+    # Find where we have more than 3 consecutive constant values
+    consecutive_constant = pressure_constant.rolling(time=3, min_periods=3).sum() >= 3
+    
+    # Shift back to flag all points of constant runs
+    mask_pressure_constant = (
+        consecutive_constant | 
+        consecutive_constant.shift(time=-1, fill_value=False) | 
+        consecutive_constant.shift(time=-2, fill_value=False)
+    )
+    
+    return mask_pressure_constant

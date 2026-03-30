@@ -189,8 +189,8 @@ def plot_qc_secondary(ds, direction=0):
         'Signal amplitude outliers',
         'Compass heading deviation',
         'Pressure failure',
-        'Temperature sensor',
-        'Time error',
+        'Unrealistic temperature',
+        'Clock drift',
         'Missing data'
     ]
     
@@ -244,3 +244,27 @@ def detect_const_pressure(ds, pressure_diff_thresh=0.001):
     )
     
     return mask_pressure_constant
+
+def summarize_qc(ds, qc_var):
+    qc = ds[qc_var]
+    
+    # Read attributes
+    flag_values = qc.attrs.get('flag_values', [])
+    flag_meanings = qc.attrs.get('flag_meanings', '').split()
+    
+    # Build mapping
+    mapping = dict(zip(flag_values, flag_meanings))
+    
+    # Count occurrences
+    counts = qc.to_series().value_counts()
+    total_count = counts.sum()
+    
+    # Print summary
+    print(f"QC Summary for '{qc_var}':")
+    for flag in flag_values:
+        count = (qc == flag).sum().item()
+        label = mapping.get(flag, "unknown")
+        pct = (count / total_count) * 100
+        print(f"{label}: {count} ({pct:.2f}%)")
+    
+    print("\n")

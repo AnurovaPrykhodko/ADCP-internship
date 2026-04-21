@@ -149,7 +149,7 @@ def plot_qc_primary(ds, direction=0):
     
     # Rename colorbar tick labels
     cbar = plt.gca().collections[0].colorbar
-    cbar.ax.set_yticklabels(['Good', 'Unknown', 'Questionable', 'Bad', 'Missing'])
+    cbar.ax.set_yticklabels(['Good', 'Unknown', 'potentially_correctable_bad_data', 'Bad', 'Missing'])
     
     plt.title(f'Primary QC Flags (dir={dir_labels.get(direction, direction)})')
     plt.show()
@@ -165,17 +165,17 @@ def plot_qc_secondary(ds, direction=0):
     dir_labels = {0: 'E', 1: 'N', 2: 'U1', 3: 'U2'}
     
     colors = [
-        '#228B22',  # 1: Passed
-        '#808080',  # 2: Unknown
-        '#F0E442',  # 3: Above surface
-        '#E69F00',  # 4: Surface interference
-        '#56B4E9',  # 5: Below correlation
-        '#CC79A7',  # 6: Amplitude outliers
-        '#9467BD',  # 7: Compass heading deviation
-        '#D62728',  # 8: Pressure failure
-        '#17BECF',  # 9: Temperature sensor
-        '#BCBD22',  # 10: Time
-        '#000000',  # 11: Missing
+        '#228B22',  # 1: passed_all_tests
+        '#808080',  # 2: unknown
+        '#000000',  # 3: missing_data
+        '#D62728',  # 4: pressure_failure
+        '#9467BD',  # 5: compass_failure
+        '#BCBD22',  # 6: time_failure
+        '#56B4E9',  # 7: below_correlation_threshold_64
+        '#CC79A7',  # 8: signal_amplitude_outliers
+        '#F0E442',  # 9: above_surface
+        '#E69F00',  # 10: surface_interference
+        "#2017CF",  # 11: velocity_spike
     ]
     bounds = [0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5, 10.5, 11.5]
     ticks = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
@@ -183,17 +183,16 @@ def plot_qc_secondary(ds, direction=0):
     labels = [
         'Passed all tests',
         'Unknown',
-        'Above surface',
-        'Surface interference',
+        'Missing data',
+        'Pressure failure',
+        'Compass failure',
+        'Time failure',
         'Below correlation threshold',
         'Signal amplitude outliers',
-        'Compass heading deviation',
-        'Pressure failure',
-        'Unrealistic temperature',
-        'Clock drift',
-        'Missing data'
+        'Above surface',
+        'Surface interference',
+        'Velocity spike'
     ]
-    
     
     cmap = ListedColormap(colors)
     norm = BoundaryNorm(bounds, cmap.N)
@@ -268,3 +267,67 @@ def summarize_qc(ds, qc_var):
         print(f"{label}: {count} ({pct:.2f}%)")
     
     print("\n")
+
+
+def detect_spikes(variable, window, dim, min_periods=None, threshold=3.0):
+    """
+    Detect spikes using z-scores computed over a rolling window.
+    
+    Parameters
+    ----------
+    variable : xr.DataArray
+        Input data array.
+    window : int
+        Size of the rolling window.
+    dim : str
+        Dimension along which to roll.
+    threshold : float, optional
+        Z-score threshold (default: 3.0).
+    min_periods : int or None, optional
+        Minimum observations required. If None, defaults to window size
+        (stricter, more NaNs at edges).
+    
+    Returns
+    -------
+    xr.DataArray
+        Boolean array where True indicates a spike.
+    """
+    if min_periods is None:
+        min_periods = window
+    
+    rolling = variable.rolling({dim: window}, center=True, min_periods=min_periods)
+    mean = rolling.mean()
+    std = rolling.std()
+    
+    std = xr.where(std == 0, np.nan, std)
+    z_scores = (variable - mean) / std
+    
+    spikes = np.abs(z_scores) > threshold
+    spikes.name = "spikes"
+    
+    return spikes
+
+def cusum_test(x, dim='time'):
+    """
+    Cumulative sum (CUSUM) test for change point detection.
+    Returns the most likely change point index and the test statistic.
+    """
+    mean = x.mean(dim=dim, skipna=True)
+    std = x.std(dim=dim, skipna=True)
+    
+    # Avoid division by zero
+    std = xr.where(std == 0, np.nan, std)
+    
+    # Cumulative sum of deviations
+    S = (x - mean).cumsum(dim=dim, skipna=False)
+    SS = S / std
+    
+    SS_abs = np.abs(SS)
+    change_point = SS_abs.argmax(dim=dim, skipna=True).values
+    
+    R = SS_abs.max(dim=dim, skipna=True) - SS_abs.min(dim=dim, skipna=True)
+    
+    n = x.sizes[dim]
+    test_statistic = R / np.sqrt(n)
+    
+    return change_point, test_statistic, S

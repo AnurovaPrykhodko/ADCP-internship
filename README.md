@@ -28,11 +28,4 @@ Implements Python 3.12, DOLfYN, Matplotlib, NumPy, Xarray and SciPy.
 -	Averaging velocity with depth and comparison with temperature
 
 ### quality_flagging.ipynb: Notebook containing quality flagging of data with minimal processing.
-  #### Numeric flags are added according to:
-- Passing all tests
-- Unkown
-- Above surface
-- Contaminated from surface interference
-- Below correlation threshold 64
-- Signal amplitude outlier
-- Missing data
+  #### The numeric flagging system includes a primary flag indicating the quality and a secondary flag with a description.

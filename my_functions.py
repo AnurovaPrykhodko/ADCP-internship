@@ -184,11 +184,11 @@ def plot_qc_secondary(ds, direction=0):
         'Passed all tests',
         'Unknown',
         'Missing data',
-        'Pressure failure',
-        'Compass failure',
-        'Time failure',
+        'Pressure error',
+        'Compass error',
+        'Time error',
         'Below correlation threshold',
-        'Signal amplitude outliers',
+        'Signal amplitude error',
         'Above surface',
         'Surface interference',
         'Velocity spike'
@@ -331,3 +331,88 @@ def cusum_test(x, dim='time'):
     test_statistic = R / np.sqrt(n)
     
     return change_point, test_statistic, S
+
+def rolling_gradient(ds, dim, window):
+    """
+    Calculate gradient over rolling windows using covariance/variance.
+
+    Parameters
+    ----------
+    ds : xarray.DataArray
+        Input data array.
+    dim : str
+        Dimension along which to compute the rolling gradient.
+    window : int
+        Size of the rolling window (must be odd for centered windows).
+
+    Returns
+    -------
+    xarray.DataArray
+        DataArray of gradient with same shape as input (NaNs at edges).
+    """
+
+    # Construct rolling windows
+    rolled = ds.rolling({dim: window}, center=True).construct("window")
+
+    # x values (indices)
+    x = np.arange(window)
+    x_mean = x.mean()
+    x_var = ((x - x_mean) ** 2).sum()
+
+    # Compute mean of y (amplitude) within each window
+    y_mean = rolled.mean(dim="window")
+
+    # Compute covariance and slope
+    covariance = ((x - x_mean) * (rolled - y_mean)).sum(dim="window")
+    gradient = covariance / x_var
+
+    return gradient
+
+
+def detect_decay_error(ds):
+     """
+     Detect signal outliers based on linear decay of signal.
+
+     Compute mean value and standard deviation of amplitude for bin 1 and bin 15 for each time profile.
+     Set start and mid thresholds to mean values + 3 standard deviations.
+     Compute slope between start and mid thresholds, then extrapolate to get end expected value.
+     Set end threshold as end expected value*1.2.
+     Compute threshold linear decay based on start and end threshold.
+     Everything above is masked as unrelistic decay.
+
+     Parameters
+     ----------
+     ds : xarray.Dataset
+
+     Returns:
+     -------
+     mask_per beam : xarray.Dataset
+          Mask with True for nonvalid values.
+     """
+
+     # Finding mean values of amplitude for the beams, each time profile
+     amp_start = ds['amp'].isel(range=slice(0, 1)).mean(dim=['beam','range'])    # bin 1
+     amp_mid = ds['amp'].isel(range=slice(14, 15)).mean(dim=['beam','range'])    # bins 15 
+     
+     # compute standard deviations
+     amp_start_std = ds['amp'].isel(range=slice(0, 1)).std(dim=['beam','range'])    # bin 1
+     amp_mid_std = ds['amp'].isel(range=slice(14, 15)).std(dim=['beam','range'])    # bins 15
+
+     start_threshold = amp_start + 3*amp_start_std  # allow for marginal
+     mid_threshold = amp_mid + 3*amp_mid_std
+
+     slope = (mid_threshold - start_threshold) / 14  # range bin differenece is 14
+     n_bins = len(ds['range'])
+     end_threshold = (start_threshold + slope * n_bins) *1.2  # allow for slightly higher threshold
+
+     thresholds = np.linspace(start_threshold.values, end_threshold.values, n_bins)
+
+     thresholds = xr.DataArray(
+     thresholds,
+     dims=['range', 'time'],
+     coords={'range': ds['range'].values, 'time': ds['time'].values}
+     )
+
+     mask_per_beam = ds['amp'] > thresholds
+
+     return mask_per_beam

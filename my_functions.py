@@ -3,6 +3,7 @@ from mhkit.dolfyn.adp import api
 
 import matplotlib.pyplot as plt
 from matplotlib.colors import ListedColormap, BoundaryNorm
+from matplotlib.patches import Patch
 import numpy as np
 import xarray as xr
 from scipy.signal import butter, sosfiltfilt
@@ -109,109 +110,111 @@ def plot_qc_primary(ds, direction=0):
     Plot primary QC flags for chosen direction.
     
     Parameters:
-        ds: xarray Dataset containing 'vel_qc_primary' or 'vel_filt_qc_primary'
+        ds: xarray Dataset containing 'vel_qc_primary'
         direction: int, index for direction (0=E, 1=N, 2=U1, 3=U2)
     """
+    
     dir_labels = {0: 'E', 1: 'N', 2: 'U1', 3: 'U2'}
     
     # Define discrete colormap for QC values
     colors = [
-        '#228B22',  # 1: Good   
-        '#808080',  # 2: Unknown   
-        '#E69F00',  # 3: Questionable   
-        '#D55E00',  # 4: Bad   
-        '#000000',  # 9: Missing   
+        "#79D97A",  # 1: Good
+        "#8E8E8E",  # 2: Unknown
+        "#EDB24A",  # 3: Questionable
+        "#DD6B60",  # 4: Bad
+        "#4F4F4F",  # 9: Missing
     ]
+    
+    qc_labels = ['Good', 'Unknown', 'Potentially correctable bad data', 'Bad', 'Missing']
+    
     cmap = ListedColormap(colors)
     bounds = [0.5, 1.5, 2.5, 3.5, 4.5, 9.5]
     norm = BoundaryNorm(bounds, cmap.N)
     
-    # Plot with discrete colors
+    # Select the variable to plot
     if 'vel_qc_primary' in ds:
-        ds['vel_qc_primary'][direction].plot(
-            cmap=cmap, 
-            norm=norm,
-            cbar_kwargs={
-                'ticks': [1, 2, 3, 4, 9],
-                'label': 'QC Flag'
-            }
-        )
-    else:
-        ds['vel_filt_qc_primary'][direction].plot(
-            cmap=cmap, 
-            norm=norm,
-            cbar_kwargs={
-                'ticks': [1, 2, 3, 4, 9],
-                'label': 'QC Flag'
-            }
-        )
-
+        data = ds['vel_qc_primary'][direction]
     
-    # Rename colorbar tick labels
-    cbar = plt.gca().collections[0].colorbar
-    cbar.ax.set_yticklabels(['Good', 'Unknown', 'potentially_correctable_bad_data', 'Bad', 'Missing'])
+    # Plot without colorbar - wider figure
+    fig, ax = plt.subplots(figsize=(10, 5))
+    data.plot(ax=ax, cmap=cmap, norm=norm, add_colorbar=False)
     
-    plt.title(f'Primary QC Flags (dir={dir_labels.get(direction, direction)})')
+    # Create legend patches
+    legend_patches = [Patch(facecolor=c, edgecolor='black', label=lbl) 
+                      for c, lbl in zip(colors, qc_labels)]
+    
+    ax.legend(handles=legend_patches, loc='center left', bbox_to_anchor=(1.02, 0.85), title='Primary Flag')
+    ax.set_title(f'Primary Flags for velocity (dir={dir_labels.get(direction, direction)})')
+    plt.ylabel('Altitude (m)')
+    ax.set_xlabel('Time (months)')
+    plt.tight_layout()
     plt.show()
 
 def plot_qc_secondary(ds, direction=0):
     """
-    Plot secondary QC flags.
-    
-    Parameters:
-        ds: xarray Dataset containing 'vel_qc_secondary' or 'vel_filt_qc_secondary'
-        direction: int, index for direction (0=E, 1=N, 2=U1, 3=U2)
+    Plot secondary QC flags with legend box instead of colorbar.
     """
     dir_labels = {0: 'E', 1: 'N', 2: 'U1', 3: 'U2'}
-    
+
     colors = [
-        '#228B22',  # 1: passed_all_tests
-        '#808080',  # 2: unknown
-        '#000000',  # 3: missing_data
-        '#D62728',  # 4: pressure_failure
-        '#9467BD',  # 5: compass_failure
-        '#BCBD22',  # 6: time_failure
-        '#56B4E9',  # 7: below_correlation_threshold_64
-        '#CC79A7',  # 8: signal_amplitude_outliers
-        '#F0E442',  # 9: above_surface
-        '#E69F00',  # 10: surface_interference
-        "#2017CF",  # 11: velocity_spike
+        "#79D97A",  # passed_all_tests
+        "#8E8E8E",  # unknown
+        "#4F4F4F",  # missing_data
+        "#F2CE5B",  # pressure_error
+        "#6FDEE0",  # compass_heading_error
+        "#EDB24A",  # time_error
+        "#5F86E6",  # velocity_spike
+        "#C06AD0",  # below_correlation_threshold
+        "#DD6B60",  # signal_amplitude_outliers
+        "#E78AC3",  # above_surface
     ]
-    bounds = [0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5, 10.5, 11.5]
-    ticks = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
-    
+
     labels = [
         'Passed all tests',
         'Unknown',
         'Missing data',
         'Pressure error',
-        'Compass error',
+        'Compass heading error',
         'Time error',
+        'Velocity spike',
         'Below correlation threshold',
         'Signal amplitude error',
         'Above surface',
-        'Surface interference',
-        'Velocity spike'
     ]
-    
+
+    bounds = [0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5, 10.5]
+
     cmap = ListedColormap(colors)
     norm = BoundaryNorm(bounds, cmap.N)
-    
-    # Plot with discrete colors
+
+    fig, ax = plt.subplots(figsize=(9.7, 5))
+
+    # Plot WITHOUT colorbar
     ds['vel_qc_secondary'][direction].plot(
-        cmap=cmap, 
+        ax=ax,
+        cmap=cmap,
         norm=norm,
-        cbar_kwargs={
-            'ticks': ticks,
-            'label': 'QC Flag'
-        }
+        add_colorbar=False
     )
-    
-    # Rename colorbar tick labels
-    cbar = plt.gca().collections[0].colorbar
-    cbar.ax.set_yticklabels(labels)
-    
-    plt.title(f'Secondary QC Flags (dir={dir_labels.get(direction, direction)})')
+
+    # Create legend patches (same idea as your primary function)
+    legend_patches = [
+        Patch(facecolor=c, edgecolor='black', label=lbl)
+        for c, lbl in zip(colors, labels)
+    ]
+
+    ax.legend(
+        handles=legend_patches,
+        loc='center left',
+        bbox_to_anchor=(1.02, 0.7),
+        title='Secondary Flag'
+    )
+
+    ax.set_title(f'Secondary Flags for velocity (dir={dir_labels.get(direction, direction)})')
+    ax.set_ylabel('Altitude (m)')
+    ax.set_xlabel('Time (months)')
+
+    plt.tight_layout()
     plt.show()
 
 def detect_const_pressure(ds, pressure_diff_thresh=0.001):

@@ -20,12 +20,15 @@ Implements Python 3.12, DOLfYN, Matplotlib, NumPy, Xarray and SciPy.
 -	Removing outliers from signal amplitude
 -	Exporting data into NetCDF format
 
-### data_analysis.ipynb: Notebook containing data analysis of the processed data.
+### data_analysis.ipynb: Notebook containing data analysis of the flagged data.
   #### Summary:
--	Filtering of tides
-- Removing surface interference and values above surface
--	Filling in gaps
--	Averaging velocity with depth and comparison with temperature
+-	Removing bad data
+- tidal reconstruction with harmonic analysis
+- computing the residual current
+- rotating to alongshore and crossshore directions based on principal heading
+- avereging velocity with depth and different layers
+- comparing alongshore velocity with temperature
+- exporting to csv
 
 ### quality_flagging.ipynb: Notebook containing quality flagging of data with minimal processing.
   #### The numeric flagging system includes a primary flag indicating the quality and a secondary flag with a description.
